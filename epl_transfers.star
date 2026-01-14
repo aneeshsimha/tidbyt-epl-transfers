@@ -65,28 +65,14 @@ def main(config):
 
         frame = render.Column(
             children = [
-                # Top banner: "EPL" on left, date/time on right
+                # Top banner: "EPL" only
                 render.Box(
                     width = 64,
                     height = 8,
                     color = "#000",
-                    child = render.Row(
-                        expanded = True,
-                        main_align = "space_between",
-                        children = [
-                            render.Padding(
-                                pad = (2, 1, 0, 0),
-                                child = render.Text("EPL", color = "#FFA500", font = "tom-thumb"),
-                            ),
-                            render.Padding(
-                                pad = (0, 1, 2, 0),
-                                child = render.Text(
-                                    now.format("JAN 2 3PM").replace(" ", " "),
-                                    color = "#FFA500",
-                                    font = "tom-thumb",
-                                ),
-                            ),
-                        ],
+                    child = render.Padding(
+                        pad = (2, 1, 0, 0),
+                        child = render.Text("EPL", color = "#FFA500", font = "tom-thumb"),
                     ),
                 ),
 
@@ -179,7 +165,7 @@ def get_fee_color(fee):
     elif "FREE" in fee:
         return "#00ff85"  # Green
     else:
-        return "#ff0"  # Yellow for paid transfers
+        return "#888"  # Dark gray for paid transfers (more legible)
 
 def get_cachable_data(url, ttl_seconds = CACHE_TTL):
     res = http.get(url = url, ttl_seconds = ttl_seconds)
