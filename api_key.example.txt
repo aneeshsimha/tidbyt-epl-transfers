@@ -1,0 +1,8 @@
+# API-Football Key
+# Get your free API key from: https://www.api-football.com/
+# Free tier: 100 requests/day
+
+YOUR_API_KEY_HERE
+
+# Usage:
+# pixlet serve epl_transfers.star api_key="YOUR_API_KEY_HERE"

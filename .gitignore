@@ -1,0 +1,20 @@
+# Pixlet output files
+*.webp
+
+# Environment files
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# API keys (never commit these!)
+api_key.txt
+secrets.txt

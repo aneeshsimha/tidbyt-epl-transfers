@@ -1,0 +1,11 @@
+---
+id: epl-transfers
+name: EPL Transfers
+author: aneeshsimha
+summary: Live Premier League transfers
+desc: |
+  Displays recent English Premier League player transfers with club badges.
+  Shows player names, source/destination clubs, and transfer details (loan,
+  free transfer, or fee). Automatically updates and caches data to respect
+  API rate limits.
+icon: soccer
