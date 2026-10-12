@@ -5,64 +5,54 @@ Description: Shows recent EPL player transfers with club badges.
 Author: aneeshsimha
 """
 
-load("render.star", "render")
-load("http.star", "http")
-load("encoding/json.star", "json")
 load("cache.star", "cache")
-load("time.star", "time")
+load("encoding/json.star", "json")
+load("http.star", "http")
+load("render.star", "render")
 load("schema.star", "schema")
 
-# ESPN API for team logos (better quality!)
-ESPN_API = "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard"
-CACHE_TTL = 3600
+API_URL = "https://v3.football.api-sports.io/transfers?team=%d"
 
-# Sample transfer data
+# 2026/27 EPL clubs (API-Football team ids). Update each season.
+EPL_TEAM_IDS = {
+    33: True,  # Manchester United
+    34: True,  # Newcastle
+    35: True,  # Bournemouth
+    36: True,  # Fulham
+    40: True,  # Liverpool
+    42: True,  # Arsenal
+    45: True,  # Everton
+    47: True,  # Tottenham
+    49: True,  # Chelsea
+    50: True,  # Manchester City
+    51: True,  # Brighton
+    52: True,  # Crystal Palace
+    55: True,  # Brentford
+    57: True,  # Ipswich
+    63: True,  # Leeds
+    64: True,  # Hull City
+    65: True,  # Nottingham Forest
+    66: True,  # Aston Villa
+    746: True,  # Sunderland
+    1346: True,  # Coventry
+}
+
+LOGO_URL = "https://media.api-sports.io/football/teams/%d.png"
+
+# Shown when no API key is configured
 SAMPLE_TRANSFERS = [
-    {
-        "player": "Marcus Rashford",
-        "from_team": "MUN",
-        "to_team": "MCI",
-        "fee": "£75M",
-        "from_logo": "https://a.espncdn.com/i/teamlogos/soccer/500/360.png",
-        "to_logo": "https://a.espncdn.com/i/teamlogos/soccer/500/382.png",
-    },
-    {
-        "player": "Bukayo Saka",
-        "from_team": "ARS",
-        "to_team": "LIV",
-        "fee": "LOAN",
-        "from_logo": "https://a.espncdn.com/i/teamlogos/soccer/500/359.png",
-        "to_logo": "https://a.espncdn.com/i/teamlogos/soccer/500/364.png",
-    },
-    {
-        "player": "Cole Palmer",
-        "from_team": "MCI",
-        "to_team": "CHE",
-        "fee": "FREE",
-        "from_logo": "https://a.espncdn.com/i/teamlogos/soccer/500/382.png",
-        "to_logo": "https://a.espncdn.com/i/teamlogos/soccer/500/363.png",
-    },
+    {"player": "C. Baleba", "fee": "", "from": 51, "to": 33},
+    {"player": "D. Gore", "fee": "LOAN", "from": 33, "to": 1359},
 ]
 
 def main(config):
-    transfers = SAMPLE_TRANSFERS
-    location = config.get("location", "{}")
-    timezone = json.decode(location).get("timezone", "America/New_York")
-    now = time.now().in_location(timezone)
+    api_key = config.get("api_key")
+    transfers = fetch_transfers(api_key)[:5] if api_key else SAMPLE_TRANSFERS
+    if not transfers:
+        return []
 
     frames = []
     for transfer in transfers:
-        # Format name as "M. RASHFORD"
-        name = format_player_name(transfer["player"]).upper()
-
-        # Get optimized logos from ESPN
-        from_logo = get_logo(transfer["from_logo"])
-        to_logo = get_logo(transfer["to_logo"])
-
-        # Format fee
-        fee = transfer["fee"]
-        fee_color = get_fee_color(fee)
-
         frame = render.Column(
             children = [
                 # Top banner: "EPL" only
@@ -85,7 +75,7 @@ def main(config):
                         pad = (2, 1, 0, 0),
                         child = render.Marquee(
                             width = 60,
-                            child = render.Text(name, color = "#fff", font = "tom-thumb"),
+                            child = render.Text(format_player_name(transfer["player"]).upper(), color = "#fff", font = "tom-thumb"),
                         ),
                     ),
                 ),
@@ -106,12 +96,12 @@ def main(config):
                                 child = render.Row(
                                     cross_align = "center",
                                     children = [
-                                        render.Image(from_logo, width = 14, height = 14),
+                                        render.Image(get_logo(transfer["from"]), width = 14, height = 14),
                                         render.Padding(
                                             pad = (2, 0, 2, 0),
                                             child = render.Text("→", color = "#00ff85", font = "5x8"),
                                         ),
-                                        render.Image(to_logo, width = 14, height = 14),
+                                        render.Image(get_logo(transfer["to"]), width = 14, height = 14),
                                     ],
                                 ),
                             ),
@@ -120,8 +110,8 @@ def main(config):
                             render.Padding(
                                 pad = (0, 0, 2, 0),
                                 child = render.Text(
-                                    fee,
-                                    color = fee_color,
+                                    transfer["fee"],
+                                    color = {"LOAN": "#FFA500", "FREE": "#00ff85"}.get(transfer["fee"], "#888"),
                                     font = "tom-thumb",
                                 ),
                             ),
@@ -138,50 +128,76 @@ def main(config):
         child = render.Animation(children = frames),
     )
 
+def fetch_transfers(api_key):
+    """Most recent transfers involving an EPL club, newest first."""
+
+    # ponytail: free tier is 10 req/min + 100/day, so fetch at most 5 uncached clubs per render
+    # and keep each for 6h (20 clubs x 4/day = 80 requests). On a paid plan, raise the budget.
+    budget = 5
+    seen = {}
+    for team_id in EPL_TEAM_IDS:
+        cached = cache.get("team-%d" % team_id)
+        if cached == None and budget > 0:
+            budget -= 1
+            cached = fetch_team(api_key, team_id)
+        for t in json.decode(cached or "[]"):
+            # API-Football sometimes lists one move twice with different dates; keep the newest
+            key = (t["player"], t["from"], t["to"])
+            if key not in seen or seen[key]["date"] < t["date"]:
+                seen[key] = t
+    return sorted(seen.values(), key = lambda t: t["date"], reverse = True)
+
+def fetch_team(api_key, team_id):
+    """One club's 10 latest EPL-involved transfers as cached JSON, or None on API error."""
+    res = http.get(API_URL % team_id, headers = {"x-apisports-key": api_key})
+    body = json.decode(res.body()) if res.status_code == 200 else {}
+
+    # API-Football returns 200 with a non-empty "errors" on rate limits; don't cache those
+    if body.get("errors") or "response" not in body:
+        return None
+    rows = []
+    for entry in body["response"]:
+        for t in entry["transfers"]:
+            from_id, to_id = t["teams"]["out"]["id"], t["teams"]["in"]["id"]
+            if from_id in EPL_TEAM_IDS or to_id in EPL_TEAM_IDS:
+                rows.append({
+                    "player": entry["player"]["name"],
+                    "date": t["date"] or "",
+                    "fee": fee_label(t["type"] or ""),
+                    "from": from_id,
+                    "to": to_id,
+                })
+    data = json.encode(sorted(rows, key = lambda t: t["date"], reverse = True)[:10])
+    cache.set("team-%d" % team_id, data, ttl_seconds = 6 * 3600)
+    return data
+
+def fee_label(kind):
+    """Map API-Football transfer types ('Loan', '€ 3M', 'N/A', ...) to a short label."""
+    k = kind.upper().replace("€", "").replace(" ", "")
+    if "BACK" in k or "RETURN" in k:
+        return "RTN"
+    for word in ("LOAN", "FREE", "SWAP"):
+        if word in k:
+            return word
+    return k if k[:1].isdigit() else ""
+
 def format_player_name(full_name):
     """Convert 'Marcus Rashford' to 'M. Rashford'"""
     parts = full_name.split(" ")
-    if len(parts) >= 2:
-        first = parts[0][0]  # First letter
-        last = " ".join(parts[1:])  # Rest is last name
-        return "%s. %s" % (first, last)
-    return full_name
+    return "%s. %s" % (parts[0][0], parts[-1]) if len(parts) > 1 else full_name
 
-def get_logo(logo_url):
-    """Get optimized logo from ESPN"""
-    # Use ESPN's combiner for better sizing
-    optimized_url = logo_url.replace(
-        "https://a.espncdn.com/",
-        "https://a.espncdn.com/combiner/i?img="
-    ) + "&h=50&w=50"
-
-    logo_data = http.get(optimized_url, ttl_seconds = 86400).body()
-    return logo_data
-
-def get_fee_color(fee):
-    """Color code transfer fees"""
-    if "LOAN" in fee:
-        return "#FFA500"  # Orange
-    elif "FREE" in fee:
-        return "#00ff85"  # Green
-    else:
-        return "#888"  # Dark gray for paid transfers (more legible)
-
-def get_cachable_data(url, ttl_seconds = CACHE_TTL):
-    res = http.get(url = url, ttl_seconds = ttl_seconds)
-    if res.status_code != 200:
-        fail("request to %s failed with status code: %d" % (url, res.status_code))
-    return res.body()
+def get_logo(team_id):
+    return http.get(LOGO_URL % team_id, ttl_seconds = 86400).body()
 
 def get_schema():
     return schema.Schema(
         version = "1",
         fields = [
-            schema.Location(
-                id = "location",
-                name = "Location",
-                desc = "Location for date/time display",
-                icon = "locationDot",
+            schema.Text(
+                id = "api_key",
+                name = "API-Football key",
+                desc = "Free key from dashboard.api-football.com",
+                icon = "key",
             ),
         ],
     )
