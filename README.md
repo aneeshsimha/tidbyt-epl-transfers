@@ -20,7 +20,7 @@ Each frame shows the player, both clubs (badge, or a 3-letter name for non-EPL c
    pixlet push <device-id> epl_transfers.webp
    ```
 
-Without a key, Latest shows sample transfers; Top in/out still work (Wikipedia needs no key).
+Without a key, the Latest section is skipped; Top in/out still work (Wikipedia needs no key).
 
 ## How it works
 

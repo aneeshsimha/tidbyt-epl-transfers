@@ -43,17 +43,10 @@ EPL_ID_BY_ARTICLE = {article: team_id for team_id, article in EPL_CLUBS.items()}
 LOGO_URL = "https://media.api-sports.io/football/teams/%d.png"
 WIKI_URL = "https://en.wikipedia.org/w/api.php?action=parse&page=List_of_English_football_transfers_%s&prop=wikitext&format=json&formatversion=2"
 WIKI_LINK = r"\[\[([^|\]]+)(?:\|([^\]]+))?\]\]"  # [[Article]] or [[Article|Display]]
-USER_AGENT = "tidbyt-epl-transfers (https://github.com/aneeshsimha/tidbyt-epl-transfers)"
-
-# Shown when no API key is configured
-SAMPLE_TRANSFERS = [
-    {"player": "C. Baleba", "fee": "", "from": 51, "to": 33},
-    {"player": "D. Gore", "fee": "LOAN", "from": 33, "to": 1359},
-]
 
 def main(config):
     api_key = config.get("api_key")
-    latest = fetch_transfers(api_key)[:5] if api_key else SAMPLE_TRANSFERS
+    latest = fetch_transfers(api_key)[:5] if api_key else []
     incoming, outgoing = fetch_top_transfers()
     sections = [("EPL LATEST", t) for t in latest] + [("EPL TOP IN", t) for t in incoming] + [("EPL TOP OUT", t) for t in outgoing]
     if not sections:
@@ -67,7 +60,6 @@ def main(config):
                 render.Box(
                     width = 64,
                     height = 8,
-                    color = "#000",
                     child = render.Padding(
                         pad = (2, 1, 0, 0),
                         child = render.Text(title, color = "#FFA500", font = "tom-thumb"),
@@ -92,16 +84,15 @@ def main(config):
                 render.Box(
                     width = 64,
                     height = 16,
-                    color = "#000",
-                    child = render.Row(
-                        expanded = True,
-                        main_align = "space_between",
-                        cross_align = "center",
-                        children = [
-                            # Left: FROM badge → TO badge
-                            render.Padding(
-                                pad = (2, 0, 0, 0),
-                                child = render.Row(
+                    child = render.Padding(
+                        pad = (2, 0, 2, 0),
+                        child = render.Row(
+                            expanded = True,
+                            main_align = "space_between",
+                            cross_align = "center",
+                            children = [
+                                # Left: FROM badge → TO badge
+                                render.Row(
                                     cross_align = "center",
                                     children = [
                                         club_badge(transfer["from"]),
@@ -112,18 +103,15 @@ def main(config):
                                         club_badge(transfer["to"]),
                                     ],
                                 ),
-                            ),
 
-                            # Right: Transfer fee
-                            render.Padding(
-                                pad = (0, 0, 2, 0),
-                                child = render.Text(
+                                # Right: Transfer fee
+                                render.Text(
                                     transfer["fee"],
                                     color = {"LOAN": "#FFA500", "FREE": "#00ff85"}.get(transfer["fee"], "#888"),
                                     font = "tom-thumb",
                                 ),
-                            ),
-                        ],
+                            ],
+                        ),
                     ),
                 ),
             ],
@@ -203,7 +191,7 @@ def club_badge(club):
 
 def fetch_top_transfers():
     """(top 5 incoming, top 5 outgoing) EPL transfers by fee in the current window, from Wikipedia."""
-    res = http.get(WIKI_URL % window_page(time.now()), headers = {"User-Agent": USER_AGENT}, ttl_seconds = 3600)
+    res = http.get(WIKI_URL % window_page(time.now()), headers = {"User-Agent": "tidbyt-epl-transfers (https://github.com/aneeshsimha/tidbyt-epl-transfers)"}, ttl_seconds = 3600)
     wikitext = json.decode(res.body()).get("parse", {}).get("wikitext", "") if res.status_code == 200 else ""
     rows = []
 
