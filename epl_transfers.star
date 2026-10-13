@@ -8,61 +8,61 @@ Author: aneeshsimha
 load("cache.star", "cache")
 load("encoding/json.star", "json")
 load("http.star", "http")
+load("re.star", "re")
 load("render.star", "render")
 load("schema.star", "schema")
+load("time.star", "time")
 
 API_URL = "https://v3.football.api-sports.io/transfers?team=%d"
 
-# 2026/27 EPL clubs (API-Football team ids). Update each season.
-EPL_TEAM_IDS = {
-    33: True,  # Manchester United
-    34: True,  # Newcastle
-    35: True,  # Bournemouth
-    36: True,  # Fulham
-    40: True,  # Liverpool
-    42: True,  # Arsenal
-    45: True,  # Everton
-    47: True,  # Tottenham
-    49: True,  # Chelsea
-    50: True,  # Manchester City
-    51: True,  # Brighton
-    52: True,  # Crystal Palace
-    55: True,  # Brentford
-    57: True,  # Ipswich
-    63: True,  # Leeds
-    64: True,  # Hull City
-    65: True,  # Nottingham Forest
-    66: True,  # Aston Villa
-    746: True,  # Sunderland
-    1346: True,  # Coventry
+# 2026/27 EPL clubs: API-Football team id -> Wikipedia article. Update each season.
+EPL_CLUBS = {
+    33: "Manchester United F.C.",
+    34: "Newcastle United F.C.",
+    35: "AFC Bournemouth",
+    36: "Fulham F.C.",
+    40: "Liverpool F.C.",
+    42: "Arsenal F.C.",
+    45: "Everton F.C.",
+    47: "Tottenham Hotspur F.C.",
+    49: "Chelsea F.C.",
+    50: "Manchester City F.C.",
+    51: "Brighton & Hove Albion F.C.",
+    52: "Crystal Palace F.C.",
+    55: "Brentford F.C.",
+    57: "Ipswich Town F.C.",
+    63: "Leeds United F.C.",
+    64: "Hull City A.F.C.",
+    65: "Nottingham Forest F.C.",
+    66: "Aston Villa F.C.",
+    746: "Sunderland A.F.C.",
+    1346: "Coventry City F.C.",
 }
+EPL_ID_BY_ARTICLE = {article: team_id for team_id, article in EPL_CLUBS.items()}
 
 LOGO_URL = "https://media.api-sports.io/football/teams/%d.png"
-
-# Shown when no API key is configured
-SAMPLE_TRANSFERS = [
-    {"player": "C. Baleba", "fee": "", "from": 51, "to": 33},
-    {"player": "D. Gore", "fee": "LOAN", "from": 33, "to": 1359},
-]
+WIKI_URL = "https://en.wikipedia.org/w/api.php?action=parse&page=List_of_English_football_transfers_%s&prop=wikitext&format=json&formatversion=2"
+WIKI_LINK = r"\[\[([^|\]]+)(?:\|([^\]]+))?\]\]"  # [[Article]] or [[Article|Display]]
 
 def main(config):
     api_key = config.get("api_key")
-    transfers = fetch_transfers(api_key)[:5] if api_key else SAMPLE_TRANSFERS
-    if not transfers:
+    latest = fetch_transfers(api_key)[:5] if api_key else []
+    incoming, outgoing = fetch_top_transfers()
+    sections = [("EPL LATEST", t) for t in latest] + [("EPL TOP IN", t) for t in incoming] + [("EPL TOP OUT", t) for t in outgoing]
+    if not sections:
         return []
 
     frames = []
-    for transfer in transfers:
+    for title, transfer in sections:
         frame = render.Column(
             children = [
-                # Top banner: "EPL" only
+                # Top banner: section title
                 render.Box(
                     width = 64,
                     height = 8,
-                    color = "#000",
                     child = render.Padding(
                         pad = (2, 1, 0, 0),
-                        child = render.Text("EPL", color = "#FFA500", font = "tom-thumb"),
+                        child = render.Text(title, color = "#FFA500", font = "tom-thumb"),
                     ),
                 ),
 
@@ -84,38 +84,34 @@ def main(config):
                 render.Box(
                     width = 64,
                     height = 16,
-                    color = "#000",
-                    child = render.Row(
-                        expanded = True,
-                        main_align = "space_between",
-                        cross_align = "center",
-                        children = [
-                            # Left: FROM badge → TO badge
-                            render.Padding(
-                                pad = (2, 0, 0, 0),
-                                child = render.Row(
+                    child = render.Padding(
+                        pad = (2, 0, 2, 0),
+                        child = render.Row(
+                            expanded = True,
+                            main_align = "space_between",
+                            cross_align = "center",
+                            children = [
+                                # Left: FROM badge → TO badge
+                                render.Row(
                                     cross_align = "center",
                                     children = [
-                                        render.Image(get_logo(transfer["from"]), width = 14, height = 14),
+                                        club_badge(transfer["from"]),
                                         render.Padding(
                                             pad = (2, 0, 2, 0),
                                             child = render.Text("→", color = "#00ff85", font = "5x8"),
                                         ),
-                                        render.Image(get_logo(transfer["to"]), width = 14, height = 14),
+                                        club_badge(transfer["to"]),
                                     ],
                                 ),
-                            ),
 
-                            # Right: Transfer fee
-                            render.Padding(
-                                pad = (0, 0, 2, 0),
-                                child = render.Text(
+                                # Right: Transfer fee
+                                render.Text(
                                     transfer["fee"],
                                     color = {"LOAN": "#FFA500", "FREE": "#00ff85"}.get(transfer["fee"], "#888"),
                                     font = "tom-thumb",
                                 ),
-                            ),
-                        ],
+                            ],
+                        ),
                     ),
                 ),
             ],
@@ -125,6 +121,7 @@ def main(config):
 
     return render.Root(
         delay = 3000,  # 3 seconds per transfer
+        show_full_animation = True,  # up to 15 frames, longer than Tidbyt's default slot
         child = render.Animation(children = frames),
     )
 
@@ -135,7 +132,7 @@ def fetch_transfers(api_key):
     # and keep each for 6h (20 clubs x 4/day = 80 requests). On a paid plan, raise the budget.
     budget = 5
     seen = {}
-    for team_id in EPL_TEAM_IDS:
+    for team_id in EPL_CLUBS:
         cached = cache.get("team-%d" % team_id)
         if cached == None and budget > 0:
             budget -= 1
@@ -159,7 +156,7 @@ def fetch_team(api_key, team_id):
     for entry in body["response"]:
         for t in entry["transfers"]:
             from_id, to_id = t["teams"]["out"]["id"], t["teams"]["in"]["id"]
-            if from_id in EPL_TEAM_IDS or to_id in EPL_TEAM_IDS:
+            if from_id in EPL_CLUBS or to_id in EPL_CLUBS:
                 rows.append({
                     "player": entry["player"]["name"],
                     "date": t["date"] or "",
@@ -186,8 +183,54 @@ def format_player_name(full_name):
     parts = full_name.split(" ")
     return "%s. %s" % (parts[0][0], parts[-1]) if len(parts) > 1 else full_name
 
-def get_logo(team_id):
-    return http.get(LOGO_URL % team_id, ttl_seconds = 86400).body()
+def club_badge(club):
+    """API-Football team id -> badge image; anything else is a short name like 'NAP'."""
+    if type(club) == "int":
+        return render.Image(http.get(LOGO_URL % club, ttl_seconds = 86400).body(), width = 14, height = 14)
+    return render.Box(width = 14, height = 14, child = render.Text(club, color = "#fff", font = "tom-thumb"))
+
+def fetch_top_transfers():
+    """(top 5 incoming, top 5 outgoing) EPL transfers by fee in the current window, from Wikipedia."""
+    res = http.get(WIKI_URL % window_page(time.now()), headers = {"User-Agent": "tidbyt-epl-transfers (https://github.com/aneeshsimha/tidbyt-epl-transfers)"}, ttl_seconds = 3600)
+    wikitext = json.decode(res.body()).get("parse", {}).get("wikitext", "") if res.status_code == 200 else ""
+    rows = []
+
+    # Table rows end with "Moving from | Moving to | Fee"; the date cell is often a rowspan, so index from the end
+    for chunk in wikitext.split("\n|-\n"):
+        cells = [line for line in chunk.split("\n") if line.startswith("|") and not line.startswith(("|-", "|}"))]
+        fee = re.match(r"\{\{ntsh\|([\d.]+)\}\}([^<|\n]*)", cells[-1]) if len(cells) >= 4 else None
+        if not fee or float(fee[0][1]) <= 1:  # ntsh 0 = free, 1 = undisclosed
+            continue
+        rows.append({
+            "player": wiki_player(cells[-4]),
+            "from": wiki_club(cells[-3]),
+            "to": wiki_club(cells[-2]),
+            "fee": fee[0][2].replace("£", "").strip().upper().split(" ")[0],
+            "value": float(fee[0][1]),
+        })
+    rows = sorted(rows, key = lambda r: r["value"], reverse = True)
+    return [r for r in rows if type(r["to"]) == "int"][:5], [r for r in rows if type(r["from"]) == "int"][:5]
+
+def window_page(now):
+    """Wikipedia page suffix for the most recent window: summer from June, else last winter."""
+    if now.month >= 6:
+        return "summer_%d" % now.year
+    return "winter_%d%%E2%%80%%93%s" % (now.year - 1, str(now.year)[2:])
+
+def wiki_player(cell):
+    m = re.match(r"[Ss]ortname\|([^|}]*)\|([^|}]*)", cell)
+    if m:
+        return m[0][1] + " " + m[0][2]
+    m = re.match(WIKI_LINK, cell)
+    return (m[0][2] or m[0][1]) if m else ""
+
+def wiki_club(cell):
+    """EPL club -> API-Football id (for its badge); other clubs -> 3-letter name."""
+    m = re.match(WIKI_LINK, cell)
+    if m and m[0][1] in EPL_ID_BY_ARTICLE:
+        return EPL_ID_BY_ARTICLE[m[0][1]]
+    name = (m[0][2] or m[0][1]) if m else cell.lstrip("|")
+    return "".join([c for c in name.codepoints() if c.isalpha()][:3]).upper()
 
 def get_schema():
     return schema.Schema(

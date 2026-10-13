@@ -1,10 +1,6 @@
 # Pixlet output files
 *.webp
 
-# Environment files
-.env
-.env.local
-
 # macOS
 .DS_Store
 
@@ -15,6 +11,5 @@
 *.swo
 *~
 
-# API keys (never commit these!)
+# API key (never commit it!)
 api_key.txt
-secrets.txt
